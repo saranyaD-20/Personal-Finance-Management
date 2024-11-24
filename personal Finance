@@ -1,0 +1,1019 @@
+import sqlite3
+import tkinter as tk
+from tkinter import messagebox, filedialog
+from datetime import datetime, timedelta
+import shutil
+import csv
+import matplotlib.pyplot as plt
+def create_db():
+    conn = sqlite3.connect('finance_app.db')
+    cursor = conn.cursor()
+    cursor.execute("DROP TABLE IF EXISTS users")
+    cursor.execute("DROP TABLE IF EXISTS transactions")
+    cursor.execute("DROP TABLE IF EXISTS budgets")
+    cursor.execute("DROP TABLE IF EXISTS recurring_transactions")
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        username TEXT PRIMARY KEY,
+        password TEXT,
+        email TEXT
+    )""")
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS transactions (
+        id INTEGER PRIMARY KEY,
+        username TEXT,
+        type TEXT,
+        category TEXT,
+        amount REAL,
+        date TEXT,
+        FOREIGN KEY(username) REFERENCES users(username)
+    )""")
+
+   
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS budgets (
+        username TEXT,
+        category TEXT,
+        amount REAL,
+        PRIMARY KEY(username, category),
+        FOREIGN KEY(username) REFERENCES users(username)
+    )""")
+
+   
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS recurring_transactions (
+        id INTEGER PRIMARY KEY,
+        username TEXT,
+        type TEXT,
+        category TEXT,
+        amount REAL,
+        frequency TEXT,
+        next_date TEXT,
+        FOREIGN KEY(username) REFERENCES users(username)
+    )""")
+
+    conn.commit()
+    conn.close()
+
+
+def register_user(username, password, email):
+    conn = sqlite3.connect('finance_app.db')
+    cursor = conn.cursor()
+
+    cursor.execute("INSERT INTO users (username, password, email) VALUES (?, ?, ?)", (username, password, email))
+
+    conn.commit()
+    conn.close()
+
+def authenticate_user(username, password):
+    conn = sqlite3.connect('finance_app.db')
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT * FROM users WHERE username = ? AND password = ?", (username, password))
+    user = cursor.fetchone()
+
+    conn.close()
+    return user
+
+def update_user(username, new_password, new_email):
+    conn = sqlite3.connect('finance_app.db')
+    cursor = conn.cursor()
+
+    cursor.execute("UPDATE users SET password = ?, email = ? WHERE username = ?", (new_password, new_email, username))
+
+    conn.commit()
+    conn.close()
+
+def delete_user(username):
+    conn = sqlite3.connect('finance_app.db')
+    cursor = conn.cursor()
+
+    cursor.execute("DELETE FROM users WHERE username = ?", (username,))
+    cursor.execute("DELETE FROM transactions WHERE username = ?", (username,))
+    cursor.execute("DELETE FROM budgets WHERE username = ?", (username,))
+    cursor.execute("DELETE FROM recurring_transactions WHERE username = ?", (username,))
+
+    conn.commit()
+    conn.close()
+
+
+def add_transaction(username, trans_type, category, amount):
+    date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn = sqlite3.connect('finance_app.db')
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    INSERT INTO transactions (username, type, category, amount, date) 
+    VALUES (?, ?, ?, ?, ?)""", (username, trans_type, category, amount, date))
+
+    conn.commit()
+    conn.close()
+    
+def check_user_transactions(username, start_date, end_date):
+    conn = sqlite3.connect('finance_app.db')
+    cursor = conn.cursor()
+    cursor.execute("""
+    SELECT * FROM transactions 
+    WHERE username = ? AND date BETWEEN ? AND ?""", 
+    (username, start_date, end_date))
+    transactions = cursor.fetchall()
+    conn.close()
+    return transactions
+
+
+def set_budget(username, category, amount):
+    conn = sqlite3.connect('finance_app.db')
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    INSERT OR REPLACE INTO budgets (username, category, amount) 
+    VALUES (?, ?, ?)""", (username, category, amount))
+
+    conn.commit()
+    conn.close()
+
+def get_budget(username, category):
+    conn = sqlite3.connect('finance_app.db')
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT amount FROM budgets WHERE username = ? AND category = ?", (username, category))
+    budget = cursor.fetchone()
+
+    conn.close()
+
+    return budget[0] if budget else 0
+
+
+def backup_db():
+    shutil.copy('finance_app.db', 'finance_app_backup.db')
+
+
+def restore_db():
+    shutil.copy('finance_app_backup.db', 'finance_app.db')
+
+
+def add_transaction(username, trans_type, category, amount):
+    date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn = sqlite3.connect('finance_app.db')
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    INSERT INTO transactions (username, type, category, amount, date) 
+    VALUES (?, ?, ?, ?, ?)""", (username, trans_type, category, amount, date))
+
+    conn.commit()
+    conn.close()
+
+def get_financial_report(username, start_date, end_date):
+    conn = sqlite3.connect('finance_app.db')
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    SELECT SUM(amount) FROM transactions 
+    WHERE username = ? AND type = 'Income' AND date BETWEEN ? AND ?""", 
+    (username, start_date, end_date))
+    income_result = cursor.fetchone()
+    income = income_result[0] if income_result and income_result[0] is not None else 0
+
+
+    cursor.execute("""
+    SELECT SUM(amount) FROM transactions 
+    WHERE username = ? AND type = 'Expense' AND date BETWEEN ? AND ?""", 
+    (username, start_date, end_date))
+    expense_result = cursor.fetchone()
+    expense = expense_result[0] if expense_result and expense_result[0] is not None else 0
+    savings = income - expense
+
+    conn.close()
+    return income, savings, expense
+def add_recurring_transaction(username, trans_type, category, amount, frequency):
+    next_date = datetime.now() + timedelta(days=30)  
+    conn = sqlite3.connect('finance_app.db')
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    INSERT INTO recurring_transactions (username, type, category, amount, frequency, next_date) 
+    VALUES (?, ?, ?, ?, ?, ?)""", (username, trans_type, category, amount, frequency, next_date.strftime("%Y-%m-%d")))
+
+    conn.commit()
+    conn.close()
+
+def process_recurring_transactions():
+    conn = sqlite3.connect('finance_app.db')
+    cursor = conn.cursor()
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    cursor.execute("SELECT * FROM recurring_transactions WHERE next_date <= ?", (today,))
+    transactions = cursor.fetchall()
+
+    for transaction in transactions:
+        username, trans_type, category, amount, frequency, _ = transaction
+        add_transaction(username, trans_type, category, amount)
+
+        
+        if frequency == 'Monthly':
+            next_date = datetime.now() + timedelta(days=30)
+        elif frequency == 'Weekly':
+            next_date = datetime.now() + timedelta(weeks=1)
+        else:
+            continue  
+
+        cursor.execute("UPDATE recurring_transactions SET next_date = ? WHERE id = ?", (next_date.strftime("%Y-%m-%d"), transaction[0]))
+
+    conn.commit()
+    conn.close()
+
+
+def export_transaction_history(username, start_date, end_date, file_path):
+    conn = sqlite3.connect('finance_app.db')
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    SELECT * FROM transactions 
+    WHERE username = ? AND date BETWEEN ? AND ?""", (username, start_date, end_date))
+    transactions = cursor.fetchall()
+
+    with open(file_path, mode='w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(['ID', 'Username', 'Type', 'Category', 'Amount', 'Date'])
+        writer.writerows(transactions)
+
+    conn.close()
+def visualize_expenses(username):
+    conn = sqlite3.connect('finance_app.db')
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    SELECT category, SUM(amount) FROM transactions 
+    WHERE username = ? AND type = 'Expense' 
+    GROUP BY category""", (username,))
+    expenses = cursor.fetchall()
+
+    categories = [row[0] for row in expenses]
+    amounts = [row[1] for row in expenses]
+
+    plt.figure(figsize=(10, 6))
+    plt.pie(amounts, labels=categories, autopct='%1.1f%%')
+    plt.title('Expenses by Category')
+    plt.show()
+class FinanceApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Personal Finance Management")
+        self.root.geometry("600x400")  
+        self.root.config(bg='#f4f4f4') 
+        self.logged_in_user = None
+
+        self.login_frame = tk.Frame(self.root, bg='#f4f4f4')
+        self.login_frame.pack(pady=20)
+
+        self.username_label = tk.Label(self.login_frame, text="Username", bg='#f4f4f4')
+        self.username_label.grid(row=0, column=0, padx=10, pady=5)
+        self.username_entry = tk.Entry(self.login_frame)
+        self.username_entry.grid(row=0, column=1, padx=10, pady=5)
+
+        self.password_label = tk.Label(self.login_frame, text="Password", bg='#f4f4f4')
+        self.password_label.grid(row=1, column=0, padx=10, pady=5)
+        self.password_entry = tk.Entry(self.login_frame, show="*")
+        self.password_entry.grid(row=1, column=1, padx =10, pady=5)
+
+        self.email_label = tk.Label(self.login_frame, text="Email", bg='#f4f4f4')
+        self.email_label.grid(row=2, column=0, padx=10, pady=5)
+        self.email_entry = tk.Entry(self.login_frame)
+        self.email_entry.grid(row=2, column=1, padx=10, pady=5)
+
+        self.login_button = tk.Button(self.login_frame, text="Login", command=self.login, bg='#4CAF50', fg='white', padx=10, pady=5)
+        self.login_button.grid(row=3, column=1, pady=10)
+
+        self.register_button = tk.Button(self.login_frame, text="Register", command=self.register, bg='#2196F3', fg='white', padx=10, pady=5)
+        self.register_button.grid(row=4, column=1)
+
+    def login(self):
+        username = self.username_entry.get()
+        password = self.password_entry.get()
+        user = authenticate_user(username, password)
+
+        if user:
+            self.logged_in_user = username
+            self.login_frame.pack_forget()
+            self.main_frame()
+        else:
+            messagebox.showerror("Login Failed", "Invalid username or password")
+
+    def register(self):
+        username = self.username_entry.get()
+        password = self.password_entry.get()
+        email = self.email_entry.get()
+        register_user(username, password, email)
+        messagebox.showinfo("Registration Successful", "You can now log in")
+
+    def main_frame(self):
+        self.main_frame = tk.Frame(self.root, bg='#f4f4f4')
+        self.main_frame.pack(pady=20)
+
+        self.income_button = tk.Button(self.main_frame, text="Add Income", command=self.add_income, bg='#8BC34A', fg='white', padx=10, pady=10)
+        self.income_button.grid(row=0, column=0, padx=20, pady=10)
+
+        self.expense_button = tk.Button(self.main_frame, text="Add Expense", command=self.add_expense, bg='#FF5722', fg='white', padx=10, pady=10)
+        self.expense_button.grid(row=0, column=1, padx=20, pady=10)
+
+        self.report_button = tk.Button(self.main_frame, text="Financial Report", command=self.view_report, bg='#03A9F4', fg='white', padx=10, pady=10)
+        self.report_button.grid(row=1, column=0, padx=20, pady=10)
+
+        self.budget_button = tk.Button(self.main_frame, text="Set Budget", command=self.set_budget, bg='#FFEB3B', fg='black', padx=10, pady=10)
+        self.budget_button.grid(row=1, column=1, padx=20, pady=10)
+
+        self.backup_button = tk.Button(self.main_frame, text="Backup", command=self.backup, bg='#607D8B', fg='white', padx=10, pady=10)
+        self.backup_button.grid(row=2, column=0, padx=20, pady=10)
+
+        self.restore_button = tk.Button(self.main_frame, text="Restore", command=self.restore, bg='#607D8B', fg='white', padx=10, pady=10)
+        self.restore_button.grid(row=2, column=1, padx=20, pady=10)
+
+        self.update_profile_button = tk.Button(self.main_frame, text="Update Profile", command=self.update_profile, bg='#FFC107', fg='black', padx=10, pady=10)
+        self.update_profile_button.grid(row=3, column=0, padx=20, pady=10)
+
+        self.delete_account_button = tk.Button(self.main_frame, text="Delete Account", command=self.delete_account, bg='#F44336', fg='white', padx=10, pady=10)
+        self.delete_account_button.grid(row=3, column=1, padx=20, pady=10)
+
+        self.transaction_history_button = tk.Button(self.main_frame, text="Transaction History", command=self.view_transaction_history, bg='#3F51B5', fg='white', padx=10, pady=10)
+        self.transaction_history_button.grid(row=4, column=0, padx=20, pady=10)
+
+        self.visualize_expenses_button = tk.Button(self.main_frame, text="Visualize Expenses", command=self.visualize_expenses, bg='#9C27B0', fg='white', padx=10, pady=10)
+        self.visualize_expenses_button.grid(row=4, column=1, padx=20, pady=10)
+
+    def add_income(self):
+        self.transaction_window('Income')
+        add_transaction(self.logged_in_user, 'Income', 'Salary', 1000)  
+
+    def add_expense(self):
+        self.transaction_window('Expense')
+        add_transaction(self.logged_in_user, 'Expense', 'Groceries', 200) 
+
+    def transaction_window(self, trans_type):
+        transaction_window = tk.Toplevel(self.root)
+        transaction_window.title(f"Add {trans_type}")
+        
+        tk.Label(transaction_window, text="Category").grid(row=0, column=0, padx=10, pady=10)
+        category_entry = tk.Entry(transaction_window)
+        category_entry.grid(row=0, column=1, padx=10, pady=10)
+        
+        tk.Label(transaction_window, text="Amount").grid(row=1, column=0, padx=10, pady=10)
+        amount_entry = tk.Entry(transaction_window)
+        amount_entry.grid(row=1, column=1, padx=10, pady=10)
+
+        def save_transaction():
+            category = category_entry.get()
+            amount = float(amount_entry.get())
+            add_transaction(self.logged_in_user, trans_type, category, amount)
+            transaction_window.destroy()
+
+        tk.Button(transaction_window, text="Save", command=save_transaction).grid(row=2, column=1, padx=10, pady=10)
+
+    def set_budget(self):
+        budget_window = tk.Toplevel(self.root)
+        budget_window.title("Set Budget")
+
+        tk.Label(budget_window, text="Category").grid(row=0, column=0, padx=10, pady=10)
+        category_entry = tk.Entry(budget_window)
+        category_entry.grid(row=0, column=1, padx=10, pady=10)
+        
+        tk.Label(budget_window, text="Amount").grid(row=1, column=0, padx=10, pady=10)
+        amount_entry = tk.Entry(budget_window)
+        amount_entry.grid(row=1, column=1, padx=10, pady=10)
+
+        def save_budget():
+            category = category_entry.get()
+            amount = float(amount_entry.get())
+            set_budget(self.logged_in_user, category, amount)
+            budget_window.destroy()
+
+        tk.Button(budget_window, text="Save", command=save_budget).grid(row=2, column=1, padx=10, pady=10)
+
+    def view_report(self):
+        report_window = tk.Toplevel(self.root)
+        report_window.title("Financial Report")
+
+        tk.Label(report_window, text="Start Date (YYYY-MM-DD)").grid(row=0, column=0, padx=10, pady=10)
+        start_date_entry = tk.Entry(report_window)
+        start_date_entry.grid(row=0, column=1, padx=10, pady=10)
+
+        tk.Label(report_window, text="End Date (YYYY-MM-DD)").grid(row=1, column=0, padx=10, pady=10)
+        end_date_entry = tk.Entry(report_window)
+        end_date_entry.grid(row=1, column=1, padx=10, pady=10)
+
+        def generate_report():
+            start_date = start_date_entry.get()
+            end_date = end_date_entry.get()
+
+           
+            try:
+                datetime.strptime(start_date, "%Y-%m-%d")
+                datetime.strptime(end_date, "%Y-%m-%d")
+            except ValueError:
+                messagebox.showerror("Invalid Date", "Please enter dates in YYYY-MM-DD format.")
+                return
+
+            
+            try:
+                income, expense, savings = get_financial_report(self.logged_in_user, start_date, end_date)
+
+                report_text = f"Income: {income}\nExpense: {expense}\nSavings: {savings}"
+                report_label = tk.Label(report_window, text=report_text)
+                report_label.grid(row=2, column=0, columnspan=2, padx=10, pady=10)
+            except Exception as e:
+                messagebox.showerror("Error", f"An error occurred while generating the report: {str(e)}")
+
+        tk.Button(report_window, text="Generate Report", command=generate_report).grid(row=2, column=1, padx=10, pady=10)
+
+    def backup(self):
+        backup_db()
+        messagebox.showinfo("Backup", "Database backed up successfully!")
+
+    def restore(self):
+        restore_db()
+        messagebox.showinfo("Restore", "Database restored successfully!")
+
+    def update_profile(self):
+        update_window = tk.Toplevel(self.root)
+        update_window.title("Update Profile")
+
+        tk.Label(update_window, text="New Password").grid(row=0, column=0, padx=10, pady=10)
+        new_password_entry = tk.Entry(update_window, show="*")
+        new_password_entry.grid(row=0, column=1, padx=10, pady=10)
+
+        tk.Label(update_window, text="New Email").grid(row=1, column=0, padx=10, pady=10)
+        new_email_entry = tk.Entry (update_window)
+        new_email_entry.grid(row=1, column=1, padx=10, pady=10)
+
+        def save_update():
+            new_password = new_password_entry.get()
+            new_email = new_email_entry.get()
+            update_user(self.logged_in_user, new_password, new_email)
+            update_window.destroy()
+            messagebox.showinfo("Profile Update", "Profile updated successfully!")
+
+        tk.Button(update_window, text="Save", command=save_update).grid(row=2, column=1, padx=10, pady=10)
+
+    def delete_account(self):
+        confirm = messagebox.askyesno("Delete Account", "Are you sure you want to delete your account?")
+        if confirm:
+            delete_user(self.logged_in_user)
+            messagebox.showinfo("Account Deleted", "Your account has been deleted.")
+            self.root.quit()
+
+    def view_transaction_history(self):
+        history_window = tk.Toplevel(self.root)
+        history_window.title("Transaction History")
+
+        tk.Label(history_window, text="Start Date (YYYY-MM-DD)").grid(row=0, column=0, padx=10, pady=10)
+        start_date_entry = tk.Entry(history_window)
+        start_date_entry.grid(row=0, column=1, padx=10, pady=10)
+
+        tk.Label(history_window, text="End Date (YYYY-MM-DD)").grid(row=1, column=0, padx=10, pady=10)
+        end_date_entry = tk.Entry(history_window)
+        end_date_entry.grid(row=1, column=1, padx=10, pady=10)
+
+        def show_history():
+            start_date = start_date_entry.get()
+            end_date = end_date_entry.get()
+            try:
+                datetime.strptime(start_date, "%Y-%m-%d")
+                datetime.strptime(end_date, "%Y-%m-%d")
+            except ValueError:
+                messagebox.showerror("Invalid Date", "Please enter valid dates.")
+                return
+
+            conn = sqlite3.connect('finance_app.db')
+            cursor = conn.cursor()
+            cursor.execute("""
+            SELECT * FROM transactions 
+            WHERE username = ? AND date BETWEEN ? AND ?""", (self.logged_in_user, start_date, end_date))
+            transactions = cursor.fetchall()
+            conn.close()
+
+            for widget in history_window.winfo_children():
+                widget.destroy()
+
+            tk.Label(history_window, text="Transaction History").grid(row=0, column=0, columnspan=2)
+            for i, transaction in enumerate(transactions):
+                tk.Label(history_window, text=f"{transaction[1]}: {transaction[2]} - {transaction[3]} - {transaction[4]} - {transaction[5]}").grid(row=i+1, column=0, columnspan=2)
+
+            tk.Button(history_window, text="Export to CSV", command=lambda: self.export_to_csv(start_date, end_date)).grid(row=len(transactions)+1, column=0, columnspan=2)
+
+        tk.Button(history_window, text="Show History", command=show_history).grid(row=2, column=1, padx=10, pady=10)
+
+    def export_to_csv(self, start_date, end_date):
+        file_path = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV files", "*.csv")])
+        if file_path:
+            export_transaction_history(self.logged_in_user, start_date, end_date, file_path)
+            messagebox.showinfo("Export Successful", "Transaction history exported successfully!")
+
+    def visualize_expenses(self):
+        visualize_expenses(self.logged_in_user)
+
+
+create_db()
+
+
+root = tk.Tk()
+app = FinanceApp(root)
+root.mainloop() 
+import sqlite3
+import tkinter as tk
+from tkinter import messagebox, filedialog
+from datetime import datetime, timedelta
+import shutil
+import csv
+import matplotlib.pyplot as plt
+
+
+def create_db():
+    conn = sqlite3.connect('finance_app.db')
+    cursor = conn.cursor()
+
+  
+    cursor.execute("DROP TABLE IF EXISTS users")
+    cursor.execute("DROP TABLE IF EXISTS transactions")
+    cursor.execute("DROP TABLE IF EXISTS budgets")
+    cursor.execute("DROP TABLE IF EXISTS recurring_transactions")
+
+    
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        username TEXT PRIMARY KEY,
+        password TEXT,
+        email TEXT
+    )""")
+
+    
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS transactions (
+        id INTEGER PRIMARY KEY,
+        username TEXT,
+        type TEXT,
+        category TEXT,
+        amount REAL,
+        date TEXT,
+        FOREIGN KEY(username) REFERENCES users(username)
+    )""")
+
+    
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS budgets (
+        username TEXT,
+        category TEXT,
+        amount REAL,
+        PRIMARY KEY(username, category),
+        FOREIGN KEY(username) REFERENCES users(username)
+    )""")
+
+    
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS recurring_transactions (
+        id INTEGER PRIMARY KEY,
+        username TEXT,
+        type TEXT,
+        category TEXT,
+        amount REAL,
+        frequency TEXT,
+        next_date TEXT,
+        FOREIGN KEY(username) REFERENCES users(username)
+    )""")
+
+    conn.commit()
+    conn.close()
+
+def register_user(username, password, email):
+    conn = sqlite3.connect('finance_app.db')
+    cursor = conn.cursor()
+
+    cursor.execute("INSERT INTO users (username, password, email) VALUES (?, ?, ?)", (username, password, email))
+
+    conn.commit()
+    conn.close()
+
+def authenticate_user(username, password):
+    conn = sqlite3.connect('finance_app.db')
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT * FROM users WHERE username = ? AND password = ?", (username, password))
+    user = cursor.fetchone()
+
+    conn.close()
+    return user
+
+
+def update_user(username, new_password, new_email):
+    conn = sqlite3.connect('finance_app.db')
+    cursor = conn.cursor()
+
+    cursor.execute("UPDATE users SET password = ?, email = ? WHERE username = ?", (new_password, new_email, username))
+
+    conn.commit()
+    conn.close()
+
+def delete_user(username):
+    conn = sqlite3.connect('finance_app.db')
+    cursor = conn.cursor()
+
+    cursor.execute("DELETE FROM users WHERE username = ?", (username,))
+    cursor.execute("DELETE FROM transactions WHERE username = ?", (username,))
+    cursor.execute("DELETE FROM budgets WHERE username = ?", (username,))
+    cursor.execute("DELETE FROM recurring_transactions WHERE username = ?", (username,))
+
+    conn.commit()
+    conn.close()
+
+
+def add_transaction(username, trans_type, category, amount):
+    date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn = sqlite3.connect('finance_app.db')
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("""
+        INSERT INTO transactions (username, type, category, amount, date) 
+        VALUES (?, ?, ?, ?, ?)""", (username, trans_type, category, amount, date))
+        conn.commit()
+        print(f"Transaction added: {trans_type}, {category}, {amount}, {date}")  # Debugging statement
+    except Exception as e:
+        print(f"Error adding transaction: {e}")
+    finally:
+        conn.close()
+
+
+def set_budget(username, category, amount):
+    conn = sqlite3.connect('finance_app.db')
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    INSERT OR REPLACE INTO budgets (username, category, amount) 
+    VALUES (?, ?, ?)""", (username, category, amount))
+
+    conn.commit()
+    conn.close()
+
+def get_budget(username, category):
+    conn = sqlite3.connect('finance_app.db')
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT amount FROM budgets WHERE username = ? AND category = ?", (username, category))
+    budget = cursor.fetchone()
+
+    conn.close()
+
+    return budget[0] if budget else 0
+
+
+def backup_db():
+    shutil.copy('finance_app.db', 'finance_app_backup.db')
+
+def restore_db():
+    shutil.copy('finance_app_backup.db', 'finance_app.db')
+
+def get_financial_report(username, start_date, end_date):
+    conn = sqlite3.connect('finance_app.db')
+    cursor = conn.cursor()
+
+    print(f"Fetching report for user: {username}, from {start_date} to {end_date}")
+    cursor.execute("""
+    SELECT SUM(amount) FROM transactions 
+    WHERE username = ? AND type = 'Income' AND date BETWEEN ? AND ?""", 
+    (username, start_date, end_date))
+    income = cursor.fetchone()
+    income = income[0] if income and income[0] is not None else 0
+    print(f"Income: {income}")
+    cursor.execute("""
+    SELECT SUM(amount) FROM transactions 
+    WHERE username = ? AND type = 'Expense' AND date BETWEEN ? AND ?""", 
+    (username, start_date, end_date))
+    expense = cursor.fetchone()
+    expense = expense[0] if expense and expense[0] is not None else 0
+    print(f"Expense: {expense}")
+
+    savings = income - expense
+    print(f"Savings: {savings}")
+    conn.close()
+
+    return income, expense, savings
+
+def add_recurring_transaction(username, trans_type, category, amount, frequency):
+    next_date = datetime.now() + timedelta(days=30)  
+    conn = sqlite3.connect('finance_app.db')
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    INSERT INTO recurring_transactions (username, type, category, amount, frequency, next_date) 
+    VALUES (?, ?, ?, ?, ?, ?)""", (username, trans_type, category, amount, frequency, next_date.strftime("%Y-%m-%d")))
+
+    conn.commit()
+    conn.close()
+
+def process_recurring_transactions():
+    conn = sqlite3.connect('finance_app.db')
+    cursor = conn.cursor()
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    cursor.execute("SELECT * FROM recurring_transactions WHERE next_date <= ?", (today,))
+    transactions = cursor.fetchall()
+
+    for transaction in transactions:
+        username, trans_type, category, amount, frequency, _ = transaction
+        add_transaction(username, trans_type, category, amount)
+        if frequency == 'Monthly':
+            next_date = datetime.now() + timedelta(days=30)
+        elif frequency == 'Weekly':
+            next_date = datetime.now() + timedelta(weeks=1)
+        else:
+            continue  
+
+        cursor.execute("UPDATE recurring_transactions SET next_date = ? WHERE id = ?", (next_date.strftime("%Y-%m-%d"), transaction[0]))
+
+    conn.commit()
+    conn.close()
+def export_transaction_history(username, start_date, end_date, file_path):
+    conn = sqlite3.connect('finance_app.db')
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    SELECT * FROM transactions 
+    WHERE username = ? AND date BETWEEN ? AND ?""", (username, start_date, end_date))
+    transactions = cursor.fetchall()
+
+    with open(file_path, mode='w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(['ID', 'Username', 'Type', 'Category', 'Amount', 'Date'])
+        writer.writerows(transactions)
+
+    conn.close()
+def visualize_expenses(username):
+    conn = sqlite3.connect('finance_app.db')
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    SELECT category, SUM(amount) FROM transactions 
+    WHERE username = ? AND type = 'Expense' 
+    GROUP BY category""", (username,))
+    expenses = cursor.fetchall()
+
+    categories = [row[0] for row in expenses]
+    amounts = [row[1] for row in expenses]
+
+    plt.figure(figsize=(10, 6))
+    plt.pie(amounts, labels=categories, autopct='%1.1f%%')
+    plt.title('Expenses by Category')
+    plt.show()
+
+class FinanceApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Personal Finance Management")
+        self.root.geometry("600x400")  
+        self.root.config(bg='#f4f4f4')  
+        self.logged_in_user = None
+        self.login_frame = tk.Frame(self.root, bg='#f4f4f4')
+        self.login_frame.pack(pady=20)
+
+        self.username_label = tk.Label(self.login_frame, text="Username", bg='#f4f4f4')
+        self.username_label.grid(row=0, column=0, padx=10, pady=5)
+        self.username_entry = tk.Entry(self.login_frame)
+        self.username_entry.grid(row=0, column=1, padx=10, pady=5)
+
+        self.password_label = tk.Label(self.login_frame, text="Password", bg='#f4f4f4')
+        self.password_label.grid(row=1, column=0, padx=10, pady=5)
+        self.password_entry = tk.Entry(self.login_frame, show="*")
+        self.password_entry.grid(row=1, column=1, padx=10, pady=5)
+
+        self.email_label = tk.Label(self.login_frame, text="Email", bg='#f4f4f4')
+        self.email_label.grid(row=2, column=0, padx=10, pady=5)
+        self.email_entry = tk.Entry(self.login_frame)
+        self.email_entry.grid(row=2, column=1, padx=10, pady=5)
+
+        self.login_button = tk.Button(self.login_frame, text="Login", command=self.login, bg='#4CAF50', fg='white', padx=10, pady=5)
+        self.login_button.grid(row=3, column=1, pady=10)
+
+        self.register_button = tk.Button(self.login_frame, text="Register", command=self.register, bg='#2196F3', fg='white', padx=10, pady=5)
+        self.register_button.grid(row=4, column=1)
+
+    def login(self):
+        username = self.username_entry.get()
+        password = self.password_entry.get()
+        user = authenticate_user(username, password)
+
+        if user:
+            self.logged_in_user = username
+            self.login_frame.pack_forget()
+            self.main_frame()
+        else:
+            messagebox.showerror("Login Failed", "Invalid username or password")
+
+    def register(self):
+        username = self.username_entry.get()
+        password = self.password_entry.get()
+        email = self.email_entry.get()
+        register_user(username, password, email)
+        messagebox.showinfo("Registration Successful", "You can now log in")
+
+    def main_frame(self):
+        self.main_frame = tk.Frame(self.root, bg='#f4f4f4')
+        self.main_frame.pack(pady=20)
+
+        self.income_button = tk.Button(self.main_frame, text="Add Income", command=self.add_income, bg='#8BC34A', fg='white', padx=10, pady=10)
+        self.income_button.grid(row=0, column=0, padx=20, pady=10)
+
+        self.expense_button = tk.Button(self.main_frame, text="Add Expense", command=self.add_expense, bg='#FF5722', fg='white', padx=10, pady=10)
+        self.expense_button.grid(row=0, column=1, padx=20, pady=10)
+
+        self.report_button = tk.Button(self.main_frame, text="Financial Report", command=self.view_report, bg='#03A9F4', fg='white', padx=10, pady=10)
+        self.report_button.grid(row=1, column=0, padx=20, pady=10)
+
+        self.budget_button = tk.Button(self.main_frame, text="Set Budget", command=self.set_budget, bg='#FFEB3B', fg='black', padx=10, pady=10)
+        self.budget_button.grid(row=1, column=1, padx=20, pady=10)
+
+        self.backup_button = tk.Button(self.main_frame, text="Backup", command=self.backup, bg='#607D8B', fg='white', padx=10, pady=10)
+        self.backup_button.grid(row=2, column=0, padx=20, pady=10)
+
+        self.restore_button = tk.Button(self.main_frame, text="Restore", command=self.restore, bg='#607D8B', fg='white', padx=10, pady=10)
+        self.restore_button.grid(row=2, column=1, padx=20, pady=10)
+
+        self.update_profile_button = tk.Button(self.main_frame, text="Update Profile", command=self.update_profile, bg='#FFC107', fg='black', padx=10, pady=10)
+        self.update_profile_button.grid(row=3, column=0, padx=20, pady=10)
+
+        self.delete_account_button = tk.Button(self.main_frame, text="Delete Account", command=self.delete_account, bg='#F44336', fg='white', padx=10, pady=10)
+        self.delete_account_button.grid(row=3, column=1, padx=20, pady=10)
+
+        self.transaction_history_button = tk.Button(self.main_frame, text="Transaction History", command=self.view_transaction_history, bg='#3F51B5', fg='white', padx=10, pady=10)
+        self.transaction_history_button.grid(row=4, column=0, padx=20, pady=10)
+
+        self.visualize_expenses_button = tk.Button(self.main_frame, text="Visualize Expenses", command=self.visualize_expenses, bg='#9C27B0', fg='white', padx=10, pady=10)
+        self.visualize_expenses_button.grid(row=4, column=1, padx=20, pady=10)
+
+    def add_income(self):
+        self.transaction_window('Income')
+
+    def add_expense(self):
+        self.transaction_window('Expense')
+
+    def transaction_window(self, trans_type):
+        transaction_window = tk.Toplevel(self.root)
+        transaction_window.title(f"Add {trans_type}")
+        
+        tk.Label(transaction_window, text="Category").grid(row=0, column=0, padx=10, pady=10)
+        category_entry = tk.Entry(transaction_window)
+        category_entry.grid(row=0, column=1, padx=10, pady=10)
+        
+        tk.Label(transaction_window, text="Amount").grid(row=1, column=0, padx=10, pady=10)
+        amount_entry = tk.Entry(transaction_window)
+        amount_entry.grid(row=1, column=1, padx=10, pady=10)
+
+        def save_transaction():
+            category = category_entry.get()
+            amount = float(amount_entry.get())
+            add_transaction(self.logged_in_user, trans_type, category, amount)
+            transaction_window.destroy()
+
+        tk.Button(transaction_window, text="Save", command=save_transaction).grid(row=2, column=1, padx=10, pady=10)
+
+    def set_budget(self):
+        budget_window = tk.Toplevel(self.root)
+        budget_window.title("Set Budget")
+
+        tk.Label(budget_window, text="Category").grid(row=0, column=0, padx=10, pady=10)
+        category_entry = tk.Entry(budget_window)
+        category_entry.grid(row=0, column=1, padx=10, pady=10)
+        
+        tk.Label(budget_window, text="Amount").grid(row=1, column=0, padx=10, pady=10)
+        amount_entry = tk.Entry(budget_window)
+        amount_entry.grid(row=1, column=1, padx=10, pady=10)
+
+        def save_budget():
+            category = category_entry.get()
+            amount = float(amount_entry.get())
+            set_budget(self.logged_in_user, category, amount)
+            budget_window.destroy()
+
+        tk.Button(budget_window, text="Save", command=save_budget).grid(row=2, column=1, padx=10, pady=10)
+
+    def view_report(self):
+        report_window = tk.Toplevel(self.root)
+        report_window.title("Financial Report")
+
+        tk.Label(report_window, text="Start Date (YYYY-MM-DD)").grid(row=0, column=0, padx=10, pady=10)
+        start_date_entry = tk.Entry(report_window)
+        start_date_entry.grid(row=0, column=1, padx=10, pady=10)
+
+        tk.Label(report_window, text="End Date (YYYY-MM-DD)").grid(row=1, column=0, padx=10, pady=10)
+        end_date_entry = tk.Entry(report_window)
+        end_date_entry.grid(row=1, column=1, padx=10, pady=10)
+
+        def generate_report():
+            start_date = start_date_entry.get()
+            end_date = end_date_entry.get()
+            try:
+                datetime.strptime(start_date, "%Y-%m-%d")
+                datetime.strptime(end_date, "%Y-%m-%d")
+            except ValueError:
+                messagebox.showerror("Invalid Date", "Please enter dates in YYYY-MM-DD format.")
+                return
+            try:
+                income, expense, savings = get_financial_report(self.logged_in_user, start_date, end_date)
+
+                report_text = f"Income: {income}\nExpense: {expense}\nSavings: {savings}"
+                report_label = tk.Label(report_window, text=report_text)
+                report_label.grid(row=2, column=0, columnspan=2, padx=10, pady=10)
+            except Exception as e:
+                messagebox.showerror("Error", f"An error occurred while generating the report: {str(e)}")
+
+        tk.Button(report_window, text="Generate Report", command=generate_report).grid(row=2, column=1, padx=10, pady=10)
+
+    def backup(self):
+        backup_db()
+        messagebox.showinfo("Backup", "Database backed up successfully!")
+
+    def restore(self):
+        restore_db()
+        messagebox.showinfo("Restore", "Database restored successfully!")
+
+    def update_profile(self):
+        update_window = tk.Toplevel(self.root)
+        update_window.title("Update Profile")
+
+        tk.Label(update_window, text="New Password").grid(row=0, column=0, padx=10, pady=10)
+        new_password_entry = tk.Entry(update_window, show="*")
+        new_password_entry.grid(row=0, column=1, padx=10, pady=10)
+
+        tk.Label(update_window, text="New Email").grid(row=1, column=0, padx=10, pady=10)
+        new_email_entry = tk.Entry(update_window)
+        new_email_entry.grid(row=1, column=1, padx=10, pady =10)
+
+        def save_update():
+            new_password = new_password_entry.get()
+            new_email = new_email_entry.get()
+            update_user(self.logged_in_user, new_password, new_email)
+            update_window.destroy()
+            messagebox.showinfo("Profile Update", "Profile updated successfully!")
+
+        tk.Button(update_window, text="Save", command=save_update).grid(row=2, column=1, padx=10, pady=10)
+
+    def delete_account(self):
+        confirm = messagebox.askyesno("Delete Account", "Are you sure you want to delete your account?")
+        if confirm:
+            delete_user(self.logged_in_user)
+            messagebox.showinfo("Account Deleted", "Your account has been deleted.")
+            self.root.quit()
+
+    def view_transaction_history(self):
+        history_window = tk.Toplevel(self.root)
+        history_window.title("Transaction History")
+
+        tk.Label(history_window, text="Start Date (YYYY-MM-DD)").grid(row=0, column=0, padx=10, pady=10)
+        start_date_entry = tk.Entry(history_window)
+        start_date_entry.grid(row=0, column=1, padx=10, pady=10)
+
+        tk.Label(history_window, text="End Date (YYYY-MM-DD)").grid(row=1, column=0, padx=10, pady=10)
+        end_date_entry = tk.Entry(history_window)
+        end_date_entry.grid(row=1, column=1, padx=10, pady=10)
+
+        def show_history():
+            start_date = start_date_entry.get()
+            end_date = end_date_entry.get()
+            try:
+                datetime.strptime(start_date, "%Y-%m-%d")
+                datetime.strptime(end_date, "%Y-%m-%d")
+            except ValueError:
+                messagebox.showerror("Invalid Date", "Please enter valid dates.")
+                return
+
+            conn = sqlite3.connect('finance_app.db')
+            cursor = conn.cursor()
+            cursor.execute("""
+            SELECT * FROM transactions 
+            WHERE username = ? AND date BETWEEN ? AND ?""", (self.logged_in_user, start_date, end_date))
+            transactions = cursor.fetchall()
+            conn.close()
+
+            for widget in history_window.winfo_children():
+                widget.destroy()
+
+            tk.Label(history_window, text="Transaction History").grid(row=0, column=0, columnspan=2)
+            for i, transaction in enumerate(transactions):
+                tk.Label(history_window, text=f"{transaction[1]}: {transaction[2]} - {transaction[3]} - {transaction[4]} - {transaction[5]}").grid(row=i+1, column=0, columnspan=2)
+
+            tk.Button(history_window, text="Export to CSV", command=lambda: self.export_to_csv(start_date, end_date)).grid(row=len(transactions)+1, column=0, columnspan=2)
+
+        tk.Button(history_window, text="Show History", command=show_history).grid(row=2, column=1, padx=10, pady=10)
+
+    def export_to_csv(self, start_date, end_date):
+        file_path = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV files", "*.csv")])
+        if file_path:
+            export_transaction_history(self.logged_in_user, start_date, end_date, file_path)
+            messagebox.showinfo("Export Successful", "Transaction history exported successfully!")
+
+    def visualize_expenses(self):
+        visualize_expenses(self.logged_in_user)
+create_db()
+root = tk.Tk()
+app = FinanceApp(root)
+root.mainloop()
